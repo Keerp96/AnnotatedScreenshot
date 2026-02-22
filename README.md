@@ -97,4 +97,4 @@ addons/
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT

@@ -229,8 +229,6 @@ func _render_panel(node_data: Array[Dictionary], width: int) -> Image:
 	# --- Build SubViewport ---
 	var sv := SubViewport.new()
 	sv.size = Vector2i(width, panel_h)
-	# UPDATE_ONCE schedules exactly one render pass; triggered by force_draw().
-	sv.render_target_update_mode = SubViewport.UPDATE_ONCE
 	sv.transparent_bg = false
 
 	# Background.
@@ -323,12 +321,16 @@ func _render_panel(node_data: Array[Dictionary], width: int) -> Image:
 
 	# Add to the editor base control so the SubViewport is in the scene tree
 	# and will be processed by the rendering server.
+	# Start with UPDATE_DISABLED so no premature render fires before the
+	# SubViewport is registered and its contents are laid out.
+	sv.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	EditorInterface.get_base_control().add_child(sv)
 
-	# Wait one process frame for the scene tree to register the new node,
-	# then force a full GPU draw so the SubViewport texture is populated.
+	# Wait one process frame so the scene tree registers the new node and the
+	# layout pass runs.  Then flip to UPDATE_ONCE to schedule exactly one render
+	# pass, and await frame_post_draw to let the GPU complete it.
 	await get_tree().process_frame
-	RenderingServer.force_draw(false)
+	sv.render_target_update_mode = SubViewport.UPDATE_ONCE
 	await RenderingServer.frame_post_draw
 
 	var img := sv.get_texture().get_image()

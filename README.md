@@ -5,6 +5,11 @@ a labelled property panel beneath it, producing a single annotated PNG you can
 drop straight into bug reports, design documents, or playtesting notes.
 
 ---
+## Demo
+
+https://github.com/user-attachments/assets/0c6801ab-0b35-4762-8c11-e8334ee058d0
+
+---
 
 ## Features
 

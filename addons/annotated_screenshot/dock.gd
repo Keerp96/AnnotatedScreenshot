@@ -3,11 +3,15 @@ extends VBoxContainer
 
 ## Current active editor screen name: "2D", "3D", or "Game".
 ## Set by the EditorPlugin whenever main_screen_changed fires.
-var current_screen := "2D"
+var current_screen = "2D"
 
 var _tree: Tree
 var _export_txt_check: CheckBox
 var _status_label: Label
+var _select_btn: Button
+var _collapse_btn: Button
+var _select_all_next = false   # false = next action is Deselect All (all start checked)
+var _collapse_all_next = true  # true  = next action is Collapse All
 
 
 func _ready() -> void:
@@ -24,17 +28,36 @@ func _build_ui() -> void:
     name = "AnnotatedScreenshot"
     custom_minimum_size = Vector2(220, 300)
 
-    var refresh_btn := Button.new()
+    var refresh_btn = Button.new()
     refresh_btn.text = "↺  Refresh Nodes"
     refresh_btn.tooltip_text = "Re-scan the current scene and refresh the node list."
     refresh_btn.pressed.connect(refresh_nodes)
     add_child(refresh_btn)
+
+    var toolbar = HBoxContainer.new()
+    toolbar.add_theme_constant_override("separation", 4)
+    add_child(toolbar)
+
+    _select_btn = Button.new()
+    _select_btn.text = "☐  Deselect All"
+    _select_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    _select_btn.tooltip_text = "Select or deselect all checkboxes."
+    _select_btn.pressed.connect(_on_select_all_pressed)
+    toolbar.add_child(_select_btn)
+
+    _collapse_btn = Button.new()
+    _collapse_btn.text = "⊟  Collapse All"
+    _collapse_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    _collapse_btn.tooltip_text = "Collapse or expand all tree items."
+    _collapse_btn.pressed.connect(_on_collapse_all_pressed)
+    toolbar.add_child(_collapse_btn)
 
     _tree = Tree.new()
     _tree.size_flags_vertical = Control.SIZE_EXPAND_FILL
     _tree.hide_root = true
     _tree.select_mode = Tree.SELECT_SINGLE
     _tree.item_edited.connect(_on_tree_item_edited)
+    _tree.gui_input.connect(_on_tree_gui_input)
     add_child(_tree)
 
     add_child(HSeparator.new())
@@ -43,7 +66,7 @@ func _build_ui() -> void:
     _export_txt_check.text = "Also export .txt file"
     add_child(_export_txt_check)
 
-    var capture_btn := Button.new()
+    var capture_btn = Button.new()
     capture_btn.text = "📷  Take Screenshot"
     capture_btn.pressed.connect(_on_capture_pressed)
     add_child(capture_btn)
@@ -60,6 +83,8 @@ func _build_ui() -> void:
 # ---------------------------------------------------------------------------
 
 func refresh_nodes() -> void:
+    var prev_state := _snapshot_tree_state()
+
     _tree.clear()
     _tree.create_item()  # hidden root
 
@@ -69,28 +94,47 @@ func refresh_nodes() -> void:
         return
 
     _status_label.text = ""
-    _add_all_nodes_flat(scene_root)
+    _add_all_nodes_recursive(scene_root, _tree.get_root())
+    _restore_tree_state(prev_state)
+    # Reset toolbar button state only on a fresh tree (no prior state).
+    if prev_state.is_empty():
+        if _select_btn != null:
+            _select_all_next = false
+            _select_btn.text = "\u2610  Deselect All"
+        if _collapse_btn != null:
+            _collapse_all_next = true
+            _collapse_btn.text = "\u229f  Collapse All"
 
 
-func _add_all_nodes_flat(node: Node) -> void:
-    _add_node_to_tree(node)
+func _add_all_nodes_recursive(node: Node, parent_item: TreeItem) -> void:
+    var item = _add_node_to_tree(node, parent_item)
     for child in node.get_children():
-        _add_all_nodes_flat(child)
+        _add_all_nodes_recursive(child, item)
 
 
-func _add_node_to_tree(node: Node) -> void:
-    var item := _tree.create_item(_tree.get_root())
+func _add_node_to_tree(node: Node, parent_item: TreeItem) -> TreeItem:
+    var item = _tree.create_item(parent_item)
     item.set_cell_mode(0, TreeItem.CELL_MODE_CHECK)
     item.set_text(0, node.name + "  [" + node.get_class() + "]")
     item.set_checked(0, true)
     item.set_editable(0, true)
     item.set_metadata(0, node.get_path())
-    item.collapsed = true
+    item.collapsed = node.is_displayed_folded()
+
+    # -- "Properties" supercategory (wraps all categories / groups / props) --
+    var props_item = _tree.create_item(item)
+    props_item.set_cell_mode(0, TreeItem.CELL_MODE_CHECK)
+    props_item.set_text(0, "Properties")
+    props_item.set_checked(0, true)
+    props_item.set_editable(0, true)
+    props_item.set_custom_color(0, Color(0.60, 0.35, 0.90))
+    props_item.set_metadata(0, {"props": true})
+    props_item.collapsed = true
 
     var cur_cat_item: TreeItem = null
     var cur_cat_name := ""
     var cur_group_item: TreeItem = null
-    var cur_group_key := ""  # cat_name + "|" + group_label
+    var cur_group_key = ""  # cat_name + "|" + group_label
 
     for e in _collect_ordered_props(node):
         var pname: String = e["pname"]
@@ -99,13 +143,13 @@ func _add_node_to_tree(node: Node) -> void:
         var group_label: String = e["group_label"]
         var prefix: String = e["prefix"]
 
-        # -- Category item (child of node) --
+        # -- Category item (child of Properties container) --
         if category != cur_cat_name:
             cur_cat_name = category
             cur_group_item = null
             cur_group_key = ""
             if not category.is_empty():
-                var cat_item := _tree.create_item(item)
+                var cat_item = _tree.create_item(props_item)
                 cat_item.set_cell_mode(0, TreeItem.CELL_MODE_CHECK)
                 cat_item.set_text(0, category)
                 cat_item.set_checked(0, true)
@@ -117,8 +161,8 @@ func _add_node_to_tree(node: Node) -> void:
             else:
                 cur_cat_item = null
 
-        # -- Group item (child of category, or node if uncategorised) --
-        var group_parent := cur_cat_item if cur_cat_item != null else item
+        # -- Group item (child of category, or Properties container if uncategorised) --
+        var group_parent = cur_cat_item if cur_cat_item != null else props_item
         var new_group_key := cur_cat_name + "|" + group_label
         if new_group_key != cur_group_key:
             cur_group_key = new_group_key
@@ -135,22 +179,22 @@ func _add_node_to_tree(node: Node) -> void:
             else:
                 cur_group_item = null
 
-        # -- Property item (child of group > category > node) --
+        # -- Property item (child of group > category > Properties container) --
         var prop_parent: TreeItem
         if cur_group_item != null:
             prop_parent = cur_group_item
         elif cur_cat_item != null:
             prop_parent = cur_cat_item
         else:
-            prop_parent = item
+            prop_parent = props_item
 
         var val = node.get(pname)
-        var prop_item := _tree.create_item(prop_parent)
+        var prop_item = _tree.create_item(prop_parent)
         prop_item.set_cell_mode(0, TreeItem.CELL_MODE_CHECK)
         prop_item.set_checked(0, true)
         prop_item.set_editable(0, true)
 
-        var display_name := _friendly_prop_name(_strip_group_prefix(pname, prefix))
+        var display_name = _friendly_prop_name(_strip_group_prefix(pname, prefix))
         if val is Resource and _resource_has_editor_props(val):
             prop_item.set_text(0, display_name + "  [" + val.get_class() + "]")
             prop_item.set_custom_color(0, Color(1.0, 0.55, 0.3))
@@ -159,6 +203,7 @@ func _add_node_to_tree(node: Node) -> void:
         else:
             prop_item.set_text(0, display_name + ": " + _format_enum_value(prop, val))
             prop_item.set_metadata(0, pname)
+    return item
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +241,7 @@ func _add_resource_props_to_tree(parent_item: TreeItem, res_pname: String, resou
             cur_group_item = null
             cur_group_key = ""
             if not category.is_empty():
-                var cat_item := _tree.create_item(parent_item)
+                var cat_item = _tree.create_item(parent_item)
                 cat_item.set_cell_mode(0, TreeItem.CELL_MODE_CHECK)
                 cat_item.set_text(0, category)
                 cat_item.set_checked(0, true)
@@ -209,7 +254,7 @@ func _add_resource_props_to_tree(parent_item: TreeItem, res_pname: String, resou
                 cur_cat_item = null
 
         # -- Group item --
-        var group_parent := cur_cat_item if cur_cat_item != null else parent_item
+        var group_parent = cur_cat_item if cur_cat_item != null else parent_item
         var new_group_key := cur_cat_name + "|" + group_label
         if new_group_key != cur_group_key:
             cur_group_key = new_group_key
@@ -255,31 +300,42 @@ func get_selection() -> Dictionary:
     var root_item := _tree.get_root()
     if root_item == null:
         return result
-
-    var node_item := root_item.get_first_child()
-    while node_item != null:
-        if node_item.is_checked(0):
-            var node_path: NodePath = node_item.get_metadata(0)
-            var props: Array[String] = []
-            _collect_leaf_props(node_item, props)
-            if not props.is_empty():
-                result[node_path] = props
-        node_item = node_item.get_next()
+    _collect_node_selections(root_item, result)
     return result
 
 
+## Recursively walks all tree items, collecting props for every checked node item.
+func _collect_node_selections(parent: TreeItem, result: Dictionary) -> void:
+    var item := parent.get_first_child()
+    while item != null:
+        var meta = item.get_metadata(0)
+        if meta is NodePath:
+            # This is a scene node item.
+            if item.is_checked(0):
+                var props: Array[String] = []
+                _collect_leaf_props(item, props)
+                if not props.is_empty():
+                    result[meta] = props
+            # Always descend: unchecked node items can have checked children
+            # (currently cascade prevents this, but be safe).
+            _collect_node_selections(item, result)
+        item = item.get_next()
+
+
 ## Recursively collects checked leaf prop-path strings from a tree item's children.
-## Recurses through category and group headers automatically.
+## Skips child scene-node items (handled by _collect_node_selections).
 func _collect_leaf_props(parent: TreeItem, out: Array[String]) -> void:
     var child := parent.get_first_child()
     while child != null:
         var meta = child.get_metadata(0)
-        if meta is String:
+        if meta is NodePath:
+            pass  # child scene node — collected separately, do not descend
+        elif meta is String:
             # Leaf property.
             if child.is_checked(0):
                 out.append(meta)
-        elif meta is Dictionary and meta.has("container"):
-            # Resource container — only recurse if checked.
+        elif meta is Dictionary and (meta.has("container") or meta.has("props")):
+            # Resource container or Properties wrapper — recurse only if checked.
             if child.is_checked(0):
                 _collect_leaf_props(child, out)
         else:
@@ -301,20 +357,128 @@ func _on_tree_item_edited() -> void:
 
     # Node item, category, group header, or resource container:
     # cascade the new state to every descendant.
-    var is_node := item.get_parent() == _tree.get_root()
+    var is_node = meta is NodePath
     var is_cat = meta is Dictionary and meta.has("cat")
-    var is_group := meta == null
+    var is_group = meta == null
     var is_container = meta is Dictionary and meta.has("container")
-    if is_node or is_cat or is_group or is_container:
+    var is_props = meta is Dictionary and meta.has("props")
+    if is_node or is_cat or is_group or is_container or is_props:
         _cascade_to_children(item, checked)
 
 
 ## Sets checked state on all descendants recursively.
 func _cascade_to_children(item: TreeItem, checked: bool) -> void:
-    var child := item.get_first_child()
+    var child = item.get_first_child()
     while child != null:
         child.set_checked(0, checked)
         _cascade_to_children(child, checked)
+        child = child.get_next()
+
+
+## Toggle collapse on right-click; left-click behaviour is unchanged.
+func _on_tree_gui_input(event: InputEvent) -> void:
+    if event is InputEventMouseButton \
+            and event.button_index == MOUSE_BUTTON_RIGHT \
+            and event.pressed:
+        var clicked := _tree.get_item_at_position(event.position)
+        if clicked != null and clicked.get_first_child() != null:
+            clicked.collapsed = not clicked.collapsed
+            get_viewport().set_input_as_handled()
+
+
+# ---------------------------------------------------------------------------
+# State snapshot / restore (preserves checked + collapsed across refresh)
+# ---------------------------------------------------------------------------
+
+## Computes a unique stable string key for a tree item by walking up the tree.
+func _item_key(item: TreeItem) -> String:
+    if item == null or item == _tree.get_root():
+        return ""
+    var meta = item.get_metadata(0)
+    var part: String
+    if meta is NodePath:
+        part = str(meta)
+    elif meta is Dictionary and meta.has("props"):
+        part = "$props"
+    elif meta is Dictionary and meta.has("cat"):
+        part = "$cat:" + meta["cat"]
+    elif meta is Dictionary and meta.has("container"):
+        part = "$res:" + meta["container"]
+    elif meta == null:
+        part = "$grp:" + item.get_text(0)
+    else:
+        part = "$p:" + str(meta)
+    var parent_key := _item_key(item.get_parent())
+    return parent_key + "|" + part if not parent_key.is_empty() else part
+
+
+## Walks the whole tree and records checked + collapsed state keyed by _item_key.
+func _snapshot_tree_state() -> Dictionary:
+    var state := {}
+    if _tree.get_root() != null:
+        _snapshot_item(_tree.get_root(), state)
+    return state
+
+
+func _snapshot_item(item: TreeItem, state: Dictionary) -> void:
+    if item != _tree.get_root():
+        state[_item_key(item)] = {"checked": item.is_checked(0), "collapsed": item.collapsed}
+    var child := item.get_first_child()
+    while child != null:
+        _snapshot_item(child, state)
+        child = child.get_next()
+
+
+## Applies a previously snapshotted state to the freshly rebuilt tree.
+func _restore_tree_state(state: Dictionary) -> void:
+    if state.is_empty() or _tree.get_root() == null:
+        return
+    _restore_item(_tree.get_root(), state)
+
+
+func _restore_item(item: TreeItem, state: Dictionary) -> void:
+    if item != _tree.get_root():
+        var key := _item_key(item)
+        if state.has(key):
+            item.set_checked(0, state[key]["checked"])
+            item.collapsed = state[key]["collapsed"]
+    var child := item.get_first_child()
+    while child != null:
+        _restore_item(child, state)
+        child = child.get_next()
+
+
+func _on_select_all_pressed() -> void:
+    var do_select = _select_all_next
+    _set_all_items_checked(_tree.get_root(), do_select)
+    _select_all_next = not do_select
+    _select_btn.text = "☐  Deselect All" if do_select else "☑  Select All"
+
+
+func _on_collapse_all_pressed() -> void:
+    var do_collapse = _collapse_all_next
+    _set_all_items_collapsed(_tree.get_root(), do_collapse)
+    _collapse_all_next = not do_collapse
+    _collapse_btn.text = "⊟  Collapse All" if not do_collapse else "⊞  Expand All"
+
+
+## Sets the checked state on every tree item recursively (skips hidden root).
+func _set_all_items_checked(item: TreeItem, checked: bool) -> void:
+    if item != _tree.get_root():
+        item.set_checked(0, checked)
+    var child := item.get_first_child()
+    while child != null:
+        _set_all_items_checked(child, checked)
+        child = child.get_next()
+
+
+## Sets the collapsed state on every tree item recursively (skips hidden root).
+func _set_all_items_collapsed(item: TreeItem, collapsed: bool) -> void:
+    if item != _tree.get_root():
+        item.collapsed = collapsed
+    var child := item.get_first_child()
+    while child != null:
+        _set_all_items_collapsed(child, collapsed)
         child = child.get_next()
 
 

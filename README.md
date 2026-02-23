@@ -14,14 +14,26 @@ drop straight into bug reports, design documents, or playtesting notes.
   open: **2D**, **3D**, or **Game** view.
 - **Annotation panel** — a multi-column grid of property cards is composited
   directly below the captured image; no external tools needed.
-- **Collapsible node tree** — the dock lists every node in the open scene.
-  Each node expands into its **class categories** (e.g. *DirectionalLight3D*,
-  *Light3D*, *Node3D*, *Node*) ordered the same way as the Inspector
-  (most-derived class first), with **property groups** nested inside each
-  category.
-- **Granular selection** — tick any combination of individual properties, whole
+- **Scene-mirroring node tree** — the dock displays every node in the open scene
+  in its true hierarchy (nested just like the scene tree). Expand/collapse state
+  mirrors the scene editor automatically.
+- **Organized property display** — each node's properties are grouped into a
+  collapsible **Properties** container (purple header, closed by default) containing:
+  - **Class categories** (e.g. *DirectionalLight3D*, *Light3D*, *Node3D*, *Node*)
+    ordered the same way as the Inspector (most-derived class first).
+  - **Property groups** (e.g. *Light*, *Shadow*, *Transform*) nested inside each
+    category.
+  - Both categories and groups are tree headers with checkboxes that cascade to
+    their children.
+- **Smart selection** — tick any combination of individual properties, whole
   groups, whole categories, or entire nodes. Toggling a parent cascades to all
-  its children automatically.
+  descendants automatically. Left-click selects/deselects; right-click collapses/expands.
+- **Bulk controls** — two toolbar buttons for convenience:
+  - **☐ Deselect All / ☑ Select All** — toggle all checkboxes at once.
+  - **⊟ Collapse All / ⊞ Expand All** — fold/unfold all nodes at once.
+- **Persistent state** — refreshing the node tree preserves the checked and
+  collapsed state of every item that was present before the refresh. New/removed
+  nodes adapt automatically.
 - **Resource sub-properties** — properties whose value is a `Resource`
   (e.g. a `WorldEnvironment`'s *Environment* resource) expand into their own
   nested property tree, letting you annotate resource fields without leaving the
@@ -34,8 +46,8 @@ drop straight into bug reports, design documents, or playtesting notes.
     *Color*).
 - **Optional .txt export** — tick *Also export .txt file* to save a plain-text
   companion file alongside the PNG, useful for diffing or searching.
-- **Redot-themed UI** — category headers are tinted orange and group headers
-  red, matching the Redot engine Inspector colour scheme.
+- **Redot-themed UI** — Properties container is purple; category headers are
+  orange and group headers red, matching the Redot engine Inspector colour scheme.
 
 ---
 
@@ -61,13 +73,18 @@ drop straight into bug reports, design documents, or playtesting notes.
 1. Open a scene.
 2. Find the **AnnotatedScreenshot** dock (right panel by default).
 3. Click **↺ Refresh Nodes** if the scene tree is not yet populated.
-4. Expand nodes → categories → groups to browse properties.
-   Check or uncheck any item; toggling a parent cascades to its children.
-5. Optionally tick **Also export .txt file**.
-6. Click **📷 Take Screenshot**.
+4. Browse the scene tree (matches the scene editor's hierarchy and expand/collapse state).
+5. Expand a node and its **Properties** container to reveal categories and groups.
+   - **Left-click** on a checkbox to select/deselect. Selecting a parent cascades to all children.
+   - **Right-click** on a node/category/group to collapse/expand it (toggle without changing selection state).
+6. Use the toolbar buttons for bulk operations:
+   - **☐ Deselect All** (or **☑ Select All**) — toggle all checkboxes.
+   - **⊟ Collapse All** (or **⊞ Expand All**) — fold/unfold all items.
+7. Optionally tick **Also export .txt file**.
+8. Click **📷 Take Screenshot**.
 
 The saved file path is shown in the status label at the bottom of the dock.
-Screenshots are written to `<project>/screenshots/`.
+Screenshots are written to `<project>/screenshots/`. Your selection and folder state are preserved across refreshes.
 
 ---
 

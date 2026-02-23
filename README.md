@@ -31,9 +31,11 @@ drop straight into bug reports, design documents, or playtesting notes.
 - **Bulk controls** — two toolbar buttons for convenience:
   - **☐ Deselect All / ☑ Select All** — toggle all checkboxes at once.
   - **⊟ Collapse All / ⊞ Expand All** — fold/unfold all nodes at once.
-- **Persistent state** — refreshing the node tree preserves the checked and
-  collapsed state of every item that was present before the refresh. New/removed
-  nodes adapt automatically.
+- **Persistent state** — refreshing the node tree preserves both the checked state
+  and collapse state of every item. Smart fold-state handling: if you collapsed a
+  node in the **scene tree** since the last dock refresh, the dock will follow that
+  change; otherwise, any customizations you made by right-clicking in the dock
+  (without scene-tree changes) are preserved. New/removed nodes adapt automatically.
 - **Resource sub-properties** — properties whose value is a `Resource`
   (e.g. a `WorldEnvironment`'s *Environment* resource) expand into their own
   nested property tree, letting you annotate resource fields without leaving the

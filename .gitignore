@@ -1,3 +1,4 @@
 # Redot 4+ specific ignores
 .godot/
 /android/
+node_3d.tscn

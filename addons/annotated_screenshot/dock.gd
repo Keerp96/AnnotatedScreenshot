@@ -12,6 +12,9 @@ var _select_btn: Button
 var _collapse_btn: Button
 var _select_all_next = false   # false = next action is Deselect All (all start checked)
 var _collapse_all_next = true  # true  = next action is Collapse All
+## scene fold state recorded at the last tree build, keyed by _item_key.
+## Used to detect whether the scene tree was expanded/collapsed since last refresh.
+var _scene_folded_at_build := {}
 
 
 func _ready() -> void:
@@ -84,6 +87,7 @@ func _build_ui() -> void:
 
 func refresh_nodes() -> void:
     var prev_state := _snapshot_tree_state()
+    var prev_scene_folded := _scene_folded_at_build.duplicate()
 
     _tree.clear()
     _tree.create_item()  # hidden root
@@ -94,8 +98,9 @@ func refresh_nodes() -> void:
         return
 
     _status_label.text = ""
+    _scene_folded_at_build.clear()
     _add_all_nodes_recursive(scene_root, _tree.get_root())
-    _restore_tree_state(prev_state)
+    _restore_tree_state(prev_state, prev_scene_folded)
     # Reset toolbar button state only on a fresh tree (no prior state).
     if prev_state.is_empty():
         if _select_btn != null:
@@ -120,6 +125,7 @@ func _add_node_to_tree(node: Node, parent_item: TreeItem) -> TreeItem:
     item.set_editable(0, true)
     item.set_metadata(0, node.get_path())
     item.collapsed = node.is_displayed_folded()
+    _scene_folded_at_build[_item_key(item)] = node.is_displayed_folded()
 
     # -- "Properties" supercategory (wraps all categories / groups / props) --
     var props_item = _tree.create_item(item)
@@ -430,21 +436,35 @@ func _snapshot_item(item: TreeItem, state: Dictionary) -> void:
 
 
 ## Applies a previously snapshotted state to the freshly rebuilt tree.
-func _restore_tree_state(state: Dictionary) -> void:
+func _restore_tree_state(state: Dictionary, prev_scene_folded: Dictionary) -> void:
     if state.is_empty() or _tree.get_root() == null:
         return
-    _restore_item(_tree.get_root(), state)
+    _restore_item(_tree.get_root(), state, prev_scene_folded)
 
 
-func _restore_item(item: TreeItem, state: Dictionary) -> void:
+func _restore_item(item: TreeItem, state: Dictionary, prev_scene_folded: Dictionary) -> void:
     if item != _tree.get_root():
         var key := _item_key(item)
         if state.has(key):
-            item.set_checked(0, state[key]["checked"])
-            item.collapsed = state[key]["collapsed"]
+            var entry: Dictionary = state[key]
+            item.set_checked(0, entry["checked"])
+            var meta = item.get_metadata(0)
+            if meta is NodePath and prev_scene_folded.has(key):
+                # Compare current scene fold state against what it was at the
+                # PREVIOUS build.  If the user changed it in the scene tree,
+                # follow the scene; otherwise keep the dock's own state.
+                var scene_root = EditorInterface.get_edited_scene_root()
+                var node = scene_root.get_node_or_null(meta) if scene_root else null
+                var now_folded: bool = node.is_displayed_folded() if node else entry["collapsed"]
+                if now_folded != prev_scene_folded[key]:
+                    item.collapsed = now_folded
+                else:
+                    item.collapsed = entry["collapsed"]
+            else:
+                item.collapsed = entry["collapsed"]
     var child := item.get_first_child()
     while child != null:
-        _restore_item(child, state)
+        _restore_item(child, state, prev_scene_folded)
         child = child.get_next()
 
 
